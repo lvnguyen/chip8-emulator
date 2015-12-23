@@ -2,6 +2,7 @@ import os
 import sys
 import random
 import pyglet
+from pyglet.sprite import Sprite
 
 KEY_MAP = {pyglet.window.key._1: 0x1,
            pyglet.window.key._2: 0x2,
@@ -99,7 +100,8 @@ class Chip8(pyglet.window.Window):
 		self.registers[self.vx] += (self.opcode & 0x00ff)
 		
 	def _8ZZZ(self):
-		extracted_op = self.opcode
+		extracted_op = self.opcode & 0xf00f
+		extracted_op += 0xff0
 		try:
 			self.funcmap[extracted_op]()
 		except:
@@ -108,18 +110,22 @@ class Chip8(pyglet.window.Window):
 	def _8ZZ0(self):
 		log("Sets VX to the value of VY.")
 		self.registers[self.vx] = self.registers[self.vy]
+		self.registers[self.vx] &= 0xff
 		
 	def _8ZZ1(self):
 		log("Sets VX to VX or VY.")
 		self.registers[self.vx] |= self.registers[self.vy]
+		self.registers[self.vx] &= 0xff
 		
 	def _8ZZ2(self):
 		log("Sets VX to VX and VY.")
 		self.registers[self.vx] &= self.registers[self.vy]
+		self.registers[self.vx] &= 0xff
 		
 	def _8ZZ3(self):
 		log("Sets VX to VX xor VY.")
 		self.registers[self.vx] ^= self.registers[self.vy]
+		self.registers[self.vx] &= 0xff
 		
 	def _8ZZ4(self):
 		log("Adds VY to VX. VF is set to 1 when there's a carry, and to 0 when there isn't.")
@@ -142,7 +148,7 @@ class Chip8(pyglet.window.Window):
 	def _8ZZ6(self):
 		log("Shifts VX right by one. VF is set to the value of the least significant bit of VX before the shift.")
 		self.registers[0xf] = self.registers[self.vx] & 0x1
-		self.registers[0xf] >>= 1
+		self.registers[self.vx] >>= 1
 		
 	def _8ZZ7(self):
 		log("Sets VX to VY minus VX. VF is set to 0 when there's a borrow, and 1 when there isn't.")
@@ -155,7 +161,7 @@ class Chip8(pyglet.window.Window):
 		
 	def _8ZZE(self):
 		log("Shifts VX left by one. VF is set to the value of the most significant bit of VX before the shift.")
-		self.registers[0xf] = self.registers[self.vx] >> 7
+		self.registers[0xf] = (self.registers[self.vx] & 0x00f0) >> 7
 		self.registers[self.vx] <<= 1
 		self.registers[self.vx] &= 0xff
 		
@@ -174,38 +180,38 @@ class Chip8(pyglet.window.Window):
 		
 	def _CZZZ(self):
 		log("Sets VX to the result of a bitwise and operation on a random number and NN.")
-		r = random.random() * 0xff
+		r = int(random.random() * 0xff)
 		self.registers[self.vx] = r & (self.opcode & 0xff)
 		self.registers[self.vx] &= 0xff
 		
 	def _DZZZ(self):
 		log("Sprites stored in memory at location in index register (I)")
 		# Draws a sprite at coordinate (VX, VY) that has a width of 8 pixels
-	    # and a height of N pixels. Each row of 8 pixels is read as bit-coded
-	    # (with the most significant bit of each byte displayed on the left)
-	    # starting from memory location I; I value doesn't change after the
-	    # execution of this instruction. As described above, VF is set to 1
-	    # if any screen pixels are flipped from set to unset when the sprite
-	    # is drawn, and to 0 if that doesn't happen.
-	    self.registers[0xf] = 0
-	    x = self.registers[self.vx] & 0xff
-	    y = self.registers[self.vy] & 0xff
-	    height = self.opcode & 0xf
-	    for row in range(height):
-	    	curr_row = self.memory[row + self.index]
-	    	for pixel_offset in range(8):
-	    		loc = x + pixel_offset + ((y + row) * 64)
-	    		# Ignore pixels outside the screen
-	    		if y + row >= 32 or x + pixel_offset >= 64:
-	    			continue
-	    		mask = 1 << 8 - pixel_offset
-	    		curr_pixel = (curr_row & mask) >> (8 - pixel_offset)
-	    		self.graphics[loc] ^= curr_pixel
-	    		if self.graphics[loc] == 0:
-	    			self.registers[0xf] = 1
-	    		else:
-	    			self.registers[0xf] = 0
-	    self.need_drawing = True
+		# and a height of N pixels. Each row of 8 pixels is read as bit-coded
+		# (with the most significant bit of each byte displayed on the left)
+		# starting from memory location I; I value doesn't change after the
+		# execution of this instruction. As described above, VF is set to 1
+		# if any screen pixels are flipped from set to unset when the sprite
+		# is drawn, and to 0 if that doesn't happen.
+		self.registers[0xf] = 0
+		x = self.registers[self.vx] & 0xff
+		y = self.registers[self.vy] & 0xff
+		height = self.opcode & 0xf
+		for row in range(height):
+			curr_row = self.memory[row + self.index]
+			for pixel_offset in range(8):
+				loc = x + pixel_offset + ((y + row) * 64)
+				# Ignore pixels outside the screen
+				if y + row >= 32 or x + pixel_offset >= 64:
+					continue
+				mask = 1 << 8 - (pixel_offset + 1)
+				curr_pixel = (curr_row & mask) >> (8 - (pixel_offset + 1))
+				self.graphics[loc] ^= curr_pixel
+				if self.graphics[loc] == 0:
+					self.registers[0xf] = 1
+				else:
+					self.registers[0xf] = 0
+		self.need_drawing = True
 		
 	def _EZZZ(self):
 		extracted_op = self.opcode & 0xf00f
@@ -285,7 +291,7 @@ class Chip8(pyglet.window.Window):
 		self.index += self.vx + 1		
 	# End of opcode intepretation
 
-	def reset():
+	def reset(self):
 		self.graphics = [0] * 64 * 32
 		self.delay_timer = 0
 		self.sound_timer = 0
@@ -307,7 +313,7 @@ class Chip8(pyglet.window.Window):
 			self.memory[i] = fonts[i]
 
 	def __init__(self, *args, **kwargs):
-		super(Chip8, self).__init__(args, kwargs)
+		super(Chip8, self).__init__(*args, **kwargs)
 		self.funcmap = {
 			0x0000: self._0ZZZ,
 		    0x00e0: self._0ZZ0,
@@ -352,13 +358,13 @@ class Chip8(pyglet.window.Window):
 		self.memory = [0] * 4096
 		self.reset()
 		
-	def initialize(rom_file):
+	def initialize(self, rom_file):
 		log("Loading %s..." % rom_file)
 		self.clear()
-		binary = open(rom_file, 'rb')
+		binary = open(rom_file, 'rb').read()
 		# Copy the data from binary to memory
 		for i in range(len(binary)):
-			self.memory[i + 0x200] = binary[i]
+			self.memory[i + 0x200] = ord(binary[i])
 		self.reset()
 
 	def emulateCycle(self):
@@ -392,12 +398,12 @@ class Chip8(pyglet.window.Window):
 			self.need_drawing = False
 
 	def get_key(self):
-		for i in range(16);
+		for i in range(16):
 			if self.key_state[i] == 1:
 				return i
 		return -1
 
-	def run():
+	def run(self):
 		while not self.has_exit:
 			self.dispatch_events()
 			self.emulateCycle()
@@ -418,18 +424,15 @@ class Chip8(pyglet.window.Window):
 		if symbol in KEY_MAP.keys():
 			self.key_state[KEY_MAP[symbol]] = 0
 
-if __name__ == "__main__":
-	if len(sys.argv) == 1:
-		print "Usage: python chip8.py <path to chip8 rom> <log>"
-		print "where: <path to chip8 rom> - path to Chip8 rom"
-    	print "     : <log> - if present, prints log messages to console"
-    else:
-    	if len(sys.argv) >= 3:
-    		if sys.argv[2] == "log":
-    			LOGGING = True
+if len(sys.argv) == 1:
+	print "Usage: python chip8.py <path to chip8 rom> <log>"
+	print "where: <path to chip8 rom> - path to Chip8 rom"
+	print "     : <log> - if present, prints log messages to console"
+else:
+	if len(sys.argv) >= 3:
+		if sys.argv[2] == "log":
+			LOGGING = True
 
-    	width = 640
-		height = 320
-		chip8 = Chip8(width, height)
-		chip8.initialize(sys.argv[1])
-		chip8.run()
+	chip8 = Chip8(640, 320)
+	chip8.initialize(sys.argv[1])
+	chip8.run()
