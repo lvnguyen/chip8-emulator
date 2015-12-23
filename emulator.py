@@ -1,5 +1,6 @@
 import os
 import sys
+import random
 import pyglet
 
 KEY_MAP = {pyglet.window.key._1: 0x1,
@@ -48,6 +49,242 @@ def log(msg):
 		print msg
 
 class Chip8(pyglet.window.Window):
+	# Start of opcode intepretation
+	def _0ZZZ(self):
+		extracted_op = self.opcode & 0xf0ff
+		try:
+			self.funcmap[extracted_op]()
+		except:
+			print "Unknown instruction %X" % self.opcode
+
+	def _0ZZ0(self):
+		log("Clear the screen")
+		self.graphics = [0] * 64 * 32
+		self.need_drawing = True
+		
+	def _0ZZE(self):
+		log("Return from subroutine")
+		self.pc = self.stacks.pop()
+		
+	def _1ZZZ(self):
+		log("Jump to address NNN")
+		self.pc = self.opcode & 0x0fff
+		
+	def _2ZZZ(self):
+		log("Call subroutine at NNN")
+		self.stacks.append(self.pc)
+		self.pc = self.opcode & 0x0fff
+		
+	def _3ZZZ(self):
+		log("Skips the next instruction if VX equals NN.")
+		if self.registers[self.vx] == (self.opcode & 0x00ff):
+			self.pc += 2
+		
+	def _4ZZZ(self):
+		log("Skips the next instruction if VX doesn't equal NN.")
+		if self.registers[self.vx] != (self.opcode & 0x00ff):
+			self.pc += 2
+		
+	def _5ZZZ(self):
+		log("Skips the next instruction if VX equals VY.")
+		if self.registers[self.vx] == self.registers[vy]:
+			self.pc += 2
+		
+	def _6ZZZ(self):
+		log("Sets VX to NN.")
+		self.registers[self.vx] = self.opcode & 0x00ff
+		
+	def _7ZZZ(self):
+		log("Adds NN to VX.")
+		self.registers[self.vx] += (self.opcode & 0x00ff)
+		
+	def _8ZZZ(self):
+		extracted_op = self.opcode
+		try:
+			self.funcmap[extracted_op]()
+		except:
+			print "Unknown instruction %X" % self.opcode
+		
+	def _8ZZ0(self):
+		log("Sets VX to the value of VY.")
+		self.registers[self.vx] = self.registers[self.vy]
+		
+	def _8ZZ1(self):
+		log("Sets VX to VX or VY.")
+		self.registers[self.vx] |= self.registers[self.vy]
+		
+	def _8ZZ2(self):
+		log("Sets VX to VX and VY.")
+		self.registers[self.vx] &= self.registers[self.vy]
+		
+	def _8ZZ3(self):
+		log("Sets VX to VX xor VY.")
+		self.registers[self.vx] ^= self.registers[self.vy]
+		
+	def _8ZZ4(self):
+		log("Adds VY to VX. VF is set to 1 when there's a carry, and to 0 when there isn't.")
+		if self.registers[self.vx] + self.registers[self.vy] > 0xff:
+			self.registers[0xf] = 1
+		else:
+			self.registers[0xf] = 0
+		self.registers[self.vx] += self.registers[self.vy]
+		self.registers[self.vx] &= 0xff
+		
+	def _8ZZ5(self):
+		log("VY is subtracted from VX. VF is set to 0 when there's a borrow, and 1 when there isn't.")
+		if self.registers[self.vx] < self.registers[self.vy]:
+			self.registers[0xf] = 0
+		else:
+			self.registers[0xf] = 1
+		self.registers[self.vx] -= self.registers[self.vy]
+		self.registers[self.vx] &= 0xff
+		
+	def _8ZZ6(self):
+		log("Shifts VX right by one. VF is set to the value of the least significant bit of VX before the shift.")
+		self.registers[0xf] = self.registers[self.vx] & 0x1
+		self.registers[0xf] >>= 1
+		
+	def _8ZZ7(self):
+		log("Sets VX to VY minus VX. VF is set to 0 when there's a borrow, and 1 when there isn't.")
+		if self.registers[self.vx] > self.registers[self.vy]:
+			self.registers[0xf] = 0
+		else:
+			self.registers[0xf] = 1
+		self.registers[self.vx] = self.registers[self.vy] - self.registers[self.vx]
+		self.registers[self.vx] &= 0xff
+		
+	def _8ZZE(self):
+		log("Shifts VX left by one. VF is set to the value of the most significant bit of VX before the shift.")
+		self.registers[0xf] = self.registers[self.vx] >> 7
+		self.registers[self.vx] <<= 1
+		self.registers[self.vx] &= 0xff
+		
+	def _9ZZZ(self):
+		log("Skips the next instruction if VX doesn't equal VY.")
+		if self.registers[self.vx] != self.registers[self.vy]:
+			self.pc += 2
+		
+	def _AZZZ(self):
+		log("Sets I to the address NNN.")
+		self.index = self.opcode & 0x0fff
+		
+	def _BZZZ(self):
+		log("Jumps to the address NNN plus V0.")
+		self.pc = (self.opcode & 0x0fff) + self.registers[0]
+		
+	def _CZZZ(self):
+		log("Sets VX to the result of a bitwise and operation on a random number and NN.")
+		r = random.random() * 0xff
+		self.registers[self.vx] = r & (self.opcode & 0xff)
+		self.registers[self.vx] &= 0xff
+		
+	def _DZZZ(self):
+		log("Sprites stored in memory at location in index register (I)")
+		# Draws a sprite at coordinate (VX, VY) that has a width of 8 pixels
+	    # and a height of N pixels. Each row of 8 pixels is read as bit-coded
+	    # (with the most significant bit of each byte displayed on the left)
+	    # starting from memory location I; I value doesn't change after the
+	    # execution of this instruction. As described above, VF is set to 1
+	    # if any screen pixels are flipped from set to unset when the sprite
+	    # is drawn, and to 0 if that doesn't happen.
+	    self.registers[0xf] = 0
+	    x = self.registers[self.vx] & 0xff
+	    y = self.registers[self.vy] & 0xff
+	    height = self.opcode & 0xf
+	    for row in range(height):
+	    	curr_row = self.memory[row + self.index]
+	    	for pixel_offset in range(8):
+	    		loc = x + pixel_offset + ((y + row) * 64)
+	    		# Ignore pixels outside the screen
+	    		if y + row >= 32 or x + pixel_offset >= 64:
+	    			continue
+	    		mask = 1 << 8 - pixel_offset
+	    		curr_pixel = (curr_row & mask) >> (8 - pixel_offset)
+	    		self.graphics[loc] ^= curr_pixel
+	    		if self.graphics[loc] == 0:
+	    			self.registers[0xf] = 1
+	    		else:
+	    			self.registers[0xf] = 0
+	    self.need_drawing = True
+		
+	def _EZZZ(self):
+		extracted_op = self.opcode & 0xf00f
+		try:
+			self.funcmap[extracted_op]()
+		except:
+			print "Unknown instruction %X" % self.opcode
+		
+	def _EZZE(self):
+		log("Skips the next instruction if the key stored in VX is pressed.")
+		key = self.registers[self.vx] & 0xf
+		if self.key_state[key] == 1:
+			self.pc += 2
+
+	def _EZZ1(self):
+		log("Skips the next instruction if the key stored in VX isn't pressed.")
+		key = self.registers[self.vx] & 0xf
+		if self.key_state[key] == 0:
+			self.pc += 2
+		
+	def _FZZZ(self):
+		extracted_op = self.opcode & 0xf0ff
+		try:
+			self.funcmap[extracted_op]()
+		except:
+			print "Unknown instruction %X" % self.opcode
+		
+	def _FZ07(self):
+		log("Sets VX to the value of the delay timer.")
+		self.registers[self.vx] = self.delay_timer
+		
+	def _FZ0A(self):
+		log("A key press is awaited, and then stored in VX.")
+		ret = self.get_key()
+		if ret >= 0:
+			self.registers[self.vx] = ret
+		else:
+			self.pc -= 2
+		
+	def _FZ15(self):
+		log("Sets the delay timer to VX.")
+		self.delay_timer = self.registers[self.vx]
+		
+	def _FZ18(self):
+		log("Sets the sound timer to VX.")
+		self.sound_timer = self.registers[self.vx]
+		
+	def _FZ1E(self):
+		log("Adds VX to I. If overflow, vf = 1 (undocumented)")
+		self.index += self.registers[self.vx]
+		if self.index > 0xfff:
+			self.registers[0xf] = 1
+			self.index &= 0xfff
+		else:
+			self.registers[0xf] = 0
+		
+	def _FZ29(self):
+		log("Sets I to the location of the sprite for the character in VX. Characters 0-F (in hexadecimal) are represented by a 4x5 font.")
+		self.index = (5 * self.registers[self.vx]) & 0xfff
+
+	def _FZ33(self):
+		log("Store the BCD representation of VX")
+		self.memory[self.index] = self.registers[self.vx] / 100
+		self.memory[self.index + 1] = (self.registers[self.vx] % 100) / 10
+		self.memory[self.index + 2] = self.registers[self.vx] % 10
+				
+	def _FZ55(self):
+		log("Stores V0 to VX in memory starting at address I.")
+		for i in range(self.vx + 1):
+			self.memory[self.index + i] = self.registers[i]
+		self.index += self.vx + 1
+				
+	def _FZ65(self):
+		log("Fills V0 to VX with values from memory starting at address I.")
+		for i in range(self.vx + 1):
+			self.registers[i] = self.memory[self.index + i]
+		self.index += self.vx + 1		
+	# End of opcode intepretation
+
 	def reset():
 		self.graphics = [0] * 64 * 32
 		self.delay_timer = 0
@@ -63,6 +300,7 @@ class Chip8(pyglet.window.Window):
 		self.need_drawing = False
 		self.pixel = pixel
 		self.buzz = buzz
+		self.key_wait = False
 
 		# 80 chars
 		for i in range(len(fonts)):
@@ -127,8 +365,8 @@ class Chip8(pyglet.window.Window):
 		self.opcode = (self.memory[self.pc] << 8) | self.memory[self.pc + 1]
 		log("Current opcode: %X" % self.opcode)
 		self.pc += 2
-		self.vx = (self.opcode & 0xf00) >> 8
-		self.vy = (self.opcode & 0xf0) >> 4
+		self.vx = (self.opcode & 0x0f00) >> 8
+		self.vy = (self.opcode & 0x00f0) >> 4
 
 		extracted_op = (self.opcode & 0xf000)
 		try:
@@ -153,11 +391,32 @@ class Chip8(pyglet.window.Window):
 			self.flip()
 			self.need_drawing = False
 
+	def get_key(self):
+		for i in range(16);
+			if self.key_state[i] == 1:
+				return i
+		return -1
+
 	def run():
 		while not self.has_exit:
 			self.dispatch_events()
 			self.emulateCycle()
 			self.draw()
+
+	# Superclass keyboard input
+	def on_key_press(self, symbol, modifiers):
+		log("Key pressed: %r" % symbol)
+		if symbol in KEY_MAP.keys():
+			self.key_state[KEY_MAP[symbol]] = 1
+			if self.key_wait:
+				self.key_wait = False
+		else:
+			super(Chip8, self).on_key_press(symbol, modifiers)
+
+	def on_key_release(self, symbol, modifiers):
+		log("Key released: %r" % symbol)
+		if symbol in KEY_MAP.keys():
+			self.key_state[KEY_MAP[symbol]] = 0
 
 if __name__ == "__main__":
 	if len(sys.argv) == 1:
